@@ -1,0 +1,97 @@
+# Test harness for the most recent dev-branch container images.
+#
+# Pinned to whatever dev-<sha> tag you pass in IMAGE_TAG. Use bin/dev-up.sh
+# to auto-resolve the most recent successful "Build and Push Dev
+# Containers" run, or set IMAGE_TAG manually:
+#
+#   IMAGE_TAG=dev-57ae8be docker compose -f docker-compose.dev.yml \
+#     --env-file .env up
+#
+# All three services use pull_policy: always, so each `up` re-pulls the
+# remote image. No `build:` directives here — this compose is purely for
+# validating built images, not for local source builds.
+
+services:
+  reclip:
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/reclip:${IMAGE_TAG:?IMAGE_TAG must be set}
+    pull_policy: always
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8899
+      - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
+      - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-900}
+      - DOWNLOADS_PATH=/downloads
+      - RECLIP_API_TOKEN=${RECLIP_API_TOKEN:?RECLIP_API_TOKEN must be set}
+    volumes:
+      - downloads:/downloads
+    networks:
+      - internal
+    restart: unless-stopped
+
+  bot:
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/bot:${IMAGE_TAG:?IMAGE_TAG must be set}
+    pull_policy: always
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN:?BOT_TOKEN must be set}
+      - RECLIP_URL=http://reclip:8899
+      - RECLIP_API_TOKEN=${RECLIP_API_TOKEN:?RECLIP_API_TOKEN must be set}
+      - TELEGRAM_BOT_API_URL=http://telegram-bot-api:8081
+      - DOWNLOADS_PATH=/downloads
+      - CLEANUP_MAX_AGE_HOURS=${CLEANUP_MAX_AGE_HOURS:-1}
+      - CLEANUP_MAX_DISK_MB=${CLEANUP_MAX_DISK_MB:-5000}
+      - CLEANUP_INTERVAL_SECONDS=${CLEANUP_INTERVAL_SECONDS:-300}
+      - DASHBOARD_URL=http://dashboard:8080
+      - DASHBOARD_INTERNAL_TOKEN=${DASHBOARD_INTERNAL_TOKEN:?DASHBOARD_INTERNAL_TOKEN must be set}
+      - ALLOWED_USER_IDS=${ALLOWED_USER_IDS:-}
+    volumes:
+      - downloads:/downloads
+    depends_on:
+      - reclip
+      - telegram-bot-api
+    networks:
+      - internal
+    restart: unless-stopped
+
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:7.7
+    pull_policy: always
+    environment:
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID:?TELEGRAM_API_ID must be set}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH:?TELEGRAM_API_HASH must be set}
+      - TELEGRAM_LOCAL=true
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+    networks:
+      - internal
+    restart: unless-stopped
+
+  dashboard:
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/dashboard:${IMAGE_TAG:?IMAGE_TAG must be set}
+    pull_policy: always
+    environment:
+      - ADMIN_USER=${DASHBOARD_USER:?DASHBOARD_USER must be set}
+      - ADMIN_PASSWORD_HASH=${DASHBOARD_PASSWORD_HASH:?DASHBOARD_PASSWORD_HASH must be set}
+      - DB_PATH=/data/reclip_bot.db
+      - DOWNLOADS_PATH=/downloads
+      - RECLIP_URL=http://reclip:8899
+      - SECRET_KEY=${DASHBOARD_SECRET_KEY:?DASHBOARD_SECRET_KEY must be set}
+      - DASHBOARD_INTERNAL_TOKEN=${DASHBOARD_INTERNAL_TOKEN:?DASHBOARD_INTERNAL_TOKEN must be set}
+    volumes:
+      - dashboard-data:/data
+      - downloads:/downloads:ro
+    ports:
+      - "${DASHBOARD_PORT:-8080}:8080"
+    depends_on:
+      - reclip
+    networks:
+      - internal
+    restart: unless-stopped
+
+volumes:
+  downloads:
+  telegram-bot-api-data:
+  dashboard-data:
+
+networks:
+  internal:
+    driver: bridge
