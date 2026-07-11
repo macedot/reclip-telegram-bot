@@ -79,6 +79,26 @@ To get Telegram API credentials:
 - Create a new application (any name/description works)
 - Copy the `api_id` and `api_hash`
 
+### Required secrets
+
+A few values in `.env` must be generated before the first start. Run these commands and paste the output into `.env`:
+
+```bash
+# Dashboard login password — bcrypt hash, not plaintext.
+# Replace 'your-password-here' with the actual password you will log in with.
+python -c "import bcrypt; print(bcrypt.hashpw(b'your-password-here', bcrypt.gensalt()).decode())"
+```
+
+```bash
+# Three independent random secrets.
+# DASHBOARD_SECRET_KEY signs the dashboard session cookie.
+# DASHBOARD_INTERNAL_TOKEN is shared between bot and dashboard.
+# RECLIP_API_TOKEN gates reclip's /api/* endpoints and must match for both services.
+python -c "import secrets; print(secrets.token_urlsafe(32))"  # DASHBOARD_SECRET_KEY
+python -c "import secrets; print(secrets.token_urlsafe(32))"  # DASHBOARD_INTERNAL_TOKEN
+python -c "import secrets; print(secrets.token_urlsafe(32))"  # RECLIP_API_TOKEN
+```
+
 4. Start the services:
 ```bash
 docker-compose up -d
@@ -99,18 +119,24 @@ All configuration is via environment variables in `.env`:
 | `BOT_TOKEN` | (required) | Telegram bot token from @BotFather |
 | `TELEGRAM_API_ID` | (required) | Telegram API ID from my.telegram.org |
 | `TELEGRAM_API_HASH` | (required) | Telegram API hash from my.telegram.org |
+| `GHCR_OWNER` | (required) | GitHub username/org that owns the GHCR packages |
+| `IMAGE_TAG` | latest | Image tag to pull (e.g. `latest` or `dev-<sha>`) |
 | `MAX_CONCURRENT_DOWNLOADS` | 3 | Max parallel downloads |
 | `CLEANUP_MAX_AGE_HOURS` | 1 | Delete files older than this |
 | `CLEANUP_MAX_DISK_MB` | 5000 | Max disk usage before cleanup |
 | `CLEANUP_INTERVAL_SECONDS` | 300 | Cleanup check interval |
-| `DASHBOARD_USER` | admin | Dashboard login username |
-| `DASHBOARD_PASSWORD` | (required) | Dashboard login password |
+| `DASHBOARD_USER` | (required) | Dashboard login username (must not be `admin`) |
+| `DASHBOARD_PASSWORD_HASH` | (required) | Bcrypt hash of the dashboard login password (see [Required secrets](#required-secrets)) |
+| `DASHBOARD_SECRET_KEY` | (required) | Cookie signing key (see [Required secrets](#required-secrets)) |
+| `DASHBOARD_INTERNAL_TOKEN` | (required) | Shared secret between bot and dashboard (see [Required secrets](#required-secrets)) |
+| `RECLIP_API_TOKEN` | (required) | Shared secret for `/api/*` endpoints (see [Required secrets](#required-secrets)) |
 | `DASHBOARD_PORT` | 8080 | Dashboard port on host |
-| `DASHBOARD_SECRET_KEY` | change-me | Cookie signing key |
+| `DASHBOARD_SECURE_COOKIES` | true | Set `Secure` flag on dashboard cookies (set `false` only for plain HTTP in a trusted network) |
+| `ALLOWED_USER_IDS` | (required) | Comma-separated Telegram user IDs allowed to use the bot (fail-closed if empty) |
 
 ## Admin Dashboard
 
-The admin dashboard is available at http://localhost:8080 after starting the services. Log in with the credentials from your `.env` file.
+The admin dashboard is available at http://localhost:8080 after starting the services. Log in with `DASHBOARD_USER` and the **plaintext password** you used to generate `DASHBOARD_PASSWORD_HASH`.
 
 Pages:
 - **Dashboard** — downloads today, active users, disk usage, error rate, charts
