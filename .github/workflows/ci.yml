@@ -41,9 +41,7 @@ jobs:
     name: Dashboard tests
     runs-on: ubuntu-latest
     env:
-      DB_PATH: ${{ runner.temp }}/test.db
       ADMIN_USER: testuser
-      ADMIN_PASSWORD_HASH: ${{ steps.hash.outputs.hash }}
       SECRET_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       DASHBOARD_INTERNAL_TOKEN: test-internal-token
     steps:
@@ -57,14 +55,17 @@ jobs:
           echo "hash=$(python -c 'import bcrypt; print(bcrypt.hashpw(b\"testpw\", bcrypt.gensalt()).decode())')" >> "$GITHUB_OUTPUT"
       - run: pip install -r dashboard/requirements.txt
       - run: pip install pytest pytest-asyncio
-      - run: cd dashboard && DASHBOARD_INTERNAL_TOKEN=test-internal-token ADMIN_USER=testuser pytest -q tests/
+      - name: Run dashboard tests
+        env:
+          DB_PATH: ${{ runner.temp }}/test.db
+          ADMIN_PASSWORD_HASH: ${{ steps.hash.outputs.hash }}
+        run: cd dashboard && pytest -q tests/
 
   test-reclip:
     name: Reclip tests
     runs-on: ubuntu-latest
     env:
       RECLIP_API_TOKEN: test-reclip-token
-      DOWNLOADS_PATH: ${{ runner.temp }}/reclip-downloads
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -72,5 +73,11 @@ jobs:
           python-version: "3.12"
       - run: pip install -r reclip/requirements.txt
       - run: pip install pytest
-      - run: mkdir -p "$DOWNLOADS_PATH"
-      - run: cd reclip && RECLIP_API_TOKEN=test-reclip-token DOWNLOADS_PATH="$DOWNLOADS_PATH" pytest -q tests/
+      - name: Setup downloads dir
+        env:
+          DOWNLOADS_PATH: ${{ runner.temp }}/reclip-downloads
+        run: mkdir -p "$DOWNLOADS_PATH"
+      - name: Run reclip tests
+        env:
+          DOWNLOADS_PATH: ${{ runner.temp }}/reclip-downloads
+        run: cd reclip && RECLIP_API_TOKEN=test-reclip-token DOWNLOADS_PATH="$DOWNLOADS_PATH" pytest -q tests/
