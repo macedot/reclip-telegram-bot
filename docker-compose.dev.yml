@@ -20,6 +20,9 @@ services:
       - PORT=8899
       - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
       - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-900}
+      - MAX_JOBS=${MAX_JOBS:-1000}
+      - MAX_FILESIZE=${MAX_FILESIZE:-2G}
+      - MIN_FREE_DISK_MB=${MIN_FREE_DISK_MB:-1024}
       - DOWNLOADS_PATH=/downloads
       - RECLIP_API_TOKEN=${RECLIP_API_TOKEN:?RECLIP_API_TOKEN must be set}
     volumes:
@@ -76,6 +79,8 @@ services:
       - RECLIP_URL=http://reclip:8899
       - SECRET_KEY=${DASHBOARD_SECRET_KEY:?DASHBOARD_SECRET_KEY must be set}
       - DASHBOARD_INTERNAL_TOKEN=${DASHBOARD_INTERNAL_TOKEN:?DASHBOARD_INTERNAL_TOKEN must be set}
+      - MAX_ACTIVE_DOWNLOADS=${MAX_ACTIVE_DOWNLOADS:-256}
+      - LOGIN_RATE_LIMIT=${LOGIN_RATE_LIMIT:-5/minute}
     volumes:
       - dashboard-data:/data
       - downloads:/downloads:ro

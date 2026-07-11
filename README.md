@@ -123,6 +123,9 @@ All configuration is via environment variables in `.env`:
 | `IMAGE_TAG` | latest | Image tag to pull (e.g. `latest` or `dev-<sha>`) |
 | `MAX_CONCURRENT_DOWNLOADS` | 3 | Max parallel downloads |
 | `DOWNLOAD_TIMEOUT` | 900 | Hard timeout per download (seconds) |
+| `MAX_JOBS` | 1000 | Max in-memory download jobs tracked by reclip |
+| `MAX_FILESIZE` | 2G | Largest file size reclip will accept (yt-dlp format) |
+| `MIN_FREE_DISK_MB` | 1024 | Minimum free disk space reclip requires before starting a download |
 | `CLEANUP_MAX_AGE_HOURS` | 1 | Delete files older than this |
 | `CLEANUP_MAX_DISK_MB` | 5000 | Max disk usage before cleanup |
 | `CLEANUP_INTERVAL_SECONDS` | 300 | Cleanup check interval |
@@ -133,6 +136,8 @@ All configuration is via environment variables in `.env`:
 | `DASHBOARD_SECRET_KEY` | (required) | Cookie signing key (see [Required secrets](#required-secrets)) |
 | `DASHBOARD_INTERNAL_TOKEN` | (required) | Shared secret between bot and dashboard (see [Required secrets](#required-secrets)) |
 | `RECLIP_API_TOKEN` | (required) | Shared secret for `/api/*` endpoints (see [Required secrets](#required-secrets)) |
+| `MAX_ACTIVE_DOWNLOADS` | 256 | Maximum active download jobs tracked in the dashboard |
+| `LOGIN_RATE_LIMIT` | `5/minute` | Dashboard login rate limit (slowapi format) |
 | `DASHBOARD_PORT` | 8080 | Dashboard port on host |
 | `DASHBOARD_SECURE_COOKIES` | true | Set `Secure` flag on dashboard cookies (set `false` only for plain HTTP in a trusted network) |
 | `ALLOWED_USER_IDS` | (required) | Comma-separated Telegram user IDs allowed to use the bot (fail-closed if empty) |
