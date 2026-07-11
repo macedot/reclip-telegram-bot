@@ -4,6 +4,8 @@ import os
 
 # Point at an unreachable URL before importing event_client
 os.environ["DASHBOARD_URL"] = "http://localhost:99999"
+# C4 — token set, but the URL is unreachable so no real request is sent.
+os.environ["DASHBOARD_INTERNAL_TOKEN"] = "test-token"
 
 import event_client
 
@@ -47,3 +49,13 @@ def test_send_download_error_no_raise():
         job_id="job-1",
         error_message="Download timed out",
     ))
+
+
+def test_internal_token_is_set():
+    """The module must read DASHBOARD_INTERNAL_TOKEN from env at import time."""
+    assert event_client.DASHBOARD_INTERNAL_TOKEN == "test-token"
+
+
+def test_headers_include_token_when_set():
+    headers = event_client._headers()
+    assert headers.get("X-Internal-Token") == "test-token"

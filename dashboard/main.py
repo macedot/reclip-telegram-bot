@@ -4,12 +4,15 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 import db
 from routes.api import router as api_router
-from routes.pages import router as pages_router
+from routes.pages import limiter as pages_limiter, router as pages_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _DOWNLOADS_PATH = Path(os.environ.get("DOWNLOADS_PATH", "/downloads"))
@@ -53,6 +56,10 @@ async def _lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Application factory."""
     app = FastAPI(title="reclip admin", lifespan=_lifespan)
+
+    # H6 — wire slowapi into the app
+    app.state.limiter = pages_limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     if _STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")

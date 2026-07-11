@@ -451,6 +451,18 @@
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); }
     });
 
+    // H10 — delegated handler for quality chips (replaces inline onclick).
+    document.getElementById('cards').addEventListener('click', (e) => {
+      const chip = e.target.closest('.q-chip');
+      if (!chip) return;
+      e.stopPropagation();
+      const idx = Number(chip.dataset.idx);
+      const fid = chip.dataset.formatId;
+      if (Number.isFinite(idx) && typeof fid === 'string') {
+        pickFormat(idx, fid);
+      }
+    });
+
     async function go() {
       const urls = parseUrls(document.getElementById('urls').value);
       if (!urls.length) return;
@@ -548,19 +560,25 @@
       el.className = 'card';
       const isAudio = currentFormat === 'audio';
 
+      // H9 — only allow http(s) or data:image thumbnails; reject javascript:, etc.
+      const isSafeThumb = (u) => typeof u === 'string' && /^(https?:|data:image\/)/i.test(u);
+
       let thumbHtml;
       if (isAudio) {
         thumbHtml = `<div class="no-thumb" style="color:var(--accent)"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>`;
-      } else if (c.thumbnail) {
-        thumbHtml = `<img src="${c.thumbnail}" alt="">`;
+      } else if (c.thumbnail && isSafeThumb(c.thumbnail)) {
+        thumbHtml = `<img src="${esc(c.thumbnail)}" alt="" referrerpolicy="no-referrer">`;
       } else {
         thumbHtml = `<div class="no-thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div>`;
       }
 
+      // H10 — build chips with data attributes; the delegated listener below
+      // calls pickFormat(idx, formatId). format_id is server-validated to a
+      // whitelist of [A-Za-z0-9_+-]{1,40} so it cannot break out of the attribute.
       let qualityChips = '';
       if (!isAudio && c.formats && c.formats.length > 1) {
         qualityChips = c.formats.map(f =>
-          `<button class="q-chip${f.id === c.selectedFormatId ? ' active' : ''}" onclick="pickFormat(${idx}, '${f.id}')">${f.label}</button>`
+          `<button class="q-chip${f.id === c.selectedFormatId ? ' active' : ''}" data-idx="${idx}" data-format-id="${esc(f.id)}">${esc(f.label)}</button>`
         ).join('');
       }
 

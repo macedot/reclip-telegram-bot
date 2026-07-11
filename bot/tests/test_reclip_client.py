@@ -3,6 +3,9 @@ import httpx
 from unittest.mock import AsyncMock, patch
 
 import sys, os
+
+os.environ.setdefault("RECLIP_API_TOKEN", "test-reclip-token")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from reclip_client import (
@@ -14,6 +17,8 @@ from reclip_client import (
     ReclipServiceDown,
     ReclipError,
 )
+
+import reclip_client
 
 
 @pytest.fixture
@@ -125,7 +130,7 @@ class TestPollStatus:
         data = {
             "status": "done",
             "filename": "test.mp4",
-            "file_path": "/downloads/abc1234567.mp4",
+            "file": "abc1234567.mp4",
             "progress": None,
         }
         resp = mock_response(200, data)
@@ -138,7 +143,7 @@ class TestPollStatus:
 
             result = await poll_status("abc1234567")
             assert result["status"] == "done"
-            assert result["file_path"] == "/downloads/abc1234567.mp4"
+            assert result["file"] == "abc1234567.mp4"
 
     @pytest.mark.asyncio
     async def test_downloading_with_progress(self, mock_response):
@@ -171,3 +176,9 @@ class TestPollStatus:
 
             result = await poll_status("abc1234567")
             assert result["status"] == "error"
+
+
+class TestAuthHeader:
+    def test_client_includes_reclip_token(self):
+        client = reclip_client._client()
+        assert client.headers.get("X-Reclip-Token") == "test-reclip-token"

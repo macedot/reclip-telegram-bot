@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import hashlib
 import logging
 import os
@@ -23,9 +24,24 @@ import event_client
 logger = logging.getLogger(__name__)
 
 DOWNLOADS_PATH = os.environ.get("DOWNLOADS_PATH", "/downloads")
+DOWNLOADS_PATH_RESOLVED = Path(DOWNLOADS_PATH).resolve()
 URL_REGEX = re.compile(r"https?://[^\s<>\"']+")
 STATE_TTL = 600  # 10 minutes
 CAPTION_MAX = 1000  # Telegram caption limit is 1024, leave headroom
+
+# H5 — fail-closed: an empty/unset ALLOWED_USER_IDS env var blocks ALL users.
+# The bot will refuse to start serving until the operator sets at least one ID.
+_ALLOWED_USER_IDS_RAW = os.environ.get("ALLOWED_USER_IDS", "").strip()
+ALLOWED_USER_IDS: frozenset[int] = frozenset(
+    int(uid.strip())
+    for uid in _ALLOWED_USER_IDS_RAW.split(",")
+    if uid.strip()
+)
+if not ALLOWED_USER_IDS:
+    logger.warning(
+        "ALLOWED_USER_IDS is empty/unset — bot will REJECT all incoming messages. "
+        "Set ALLOWED_USER_IDS=11111111,22222222 to enable trusted users."
+    )
 
 
 def _truncate_caption(text: str) -> str:
@@ -35,6 +51,7 @@ def _truncate_caption(text: str) -> str:
     if len(text) <= CAPTION_MAX:
         return text
     return text[: CAPTION_MAX - 1] + "…"
+
 
 _state: dict[str, dict] = {}
 _stats = {"downloads": 0, "errors": 0, "started": time.time()}
@@ -48,6 +65,49 @@ SUPPORTED_PLATFORMS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# H5 — auth decorator (fail-closed when ALLOWED_USER_IDS is empty)
+# ---------------------------------------------------------------------------
+
+
+def _require_allowed(func):
+    """Block any update whose effective_user.id is not in ALLOWED_USER_IDS.
+
+    When ALLOWED_USER_IDS is empty (operator hasn't configured it), every user
+    is rejected — this is the documented fail-closed default.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user is None or user.id not in ALLOWED_USER_IDS:
+            logger.warning(
+                "rejected update from user_id=%s (not in ALLOWED_USER_IDS)",
+                getattr(user, "id", None),
+            )
+            # Send a single-shot notice if the chat surface allows it.
+            if update.callback_query is not None:
+                try:
+                    await update.callback_query.answer("not authorized", show_alert=True)
+                except Exception:
+                    pass
+            elif update.message is not None:
+                try:
+                    await update.message.reply_text("not authorized")
+                except Exception:
+                    pass
+            return None
+        return await func(update, context)
+
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
+# existing command/handler bodies
+# ---------------------------------------------------------------------------
+
+
+@_require_allowed
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "Hey! I'm ReClip Bot.\n\n"
@@ -65,6 +125,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+@_require_allowed
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "*How to use ReClip Bot:*\n\n"
@@ -89,11 +150,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="MarkdownV2")
 
 
+@_require_allowed
 async def cmd_platforms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "Supported platforms:\n\n" + "\n".join(f"  {p}" for p in SUPPORTED_PLATFORMS)
     await update.message.reply_text(text)
 
 
+@_require_allowed
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime_s = int(time.time() - _stats["started"])
     hours, remainder = divmod(uptime_s, 3600)
@@ -120,22 +183,24 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+@_require_allowed
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     prefs = _user_prefs.get(uid, {})
     quality = prefs.get("quality", "best")
     fmt = prefs.get("format", "video")
     text = (
-        f"Your preferences:\n\n"
+        "Your preferences:\n\n"
         f"  Default quality: {quality}\n"
         f"  Default format: {fmt}\n\n"
-        f"Change:\n"
-        f"  /setquality <best/720/480>\n"
-        f"  /setformat <video/audio>\n"
+        "Change:\n"
+        "  /setquality <best/1080/720/480/360>\n"
+        "  /setformat <video/audio>\n"
     )
     await update.message.reply_text(text)
 
 
+@_require_allowed
 async def cmd_setquality(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not context.args:
@@ -150,6 +215,7 @@ async def cmd_setquality(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Default quality set to: {q}")
 
 
+@_require_allowed
 async def cmd_setformat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if not context.args:
@@ -173,6 +239,7 @@ def _extract_urls_from_command(update: Update) -> list[str]:
     return urls
 
 
+@_require_allowed
 async def cmd_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct MP3 download without format picker."""
     urls = _extract_urls_from_command(update)
@@ -184,6 +251,7 @@ async def cmd_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _direct_download(update, msg, url, "audio", None)
 
 
+@_require_allowed
 async def cmd_mp4(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Direct best-quality MP4 download without format picker."""
     urls = _extract_urls_from_command(update)
@@ -195,9 +263,22 @@ async def cmd_mp4(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _direct_download(update, msg, url, "video", None)
 
 
+@_require_allowed
 async def cmd_best(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Alias for /mp4."""
     await cmd_mp4(update, context)
+
+
+def _resolve_local_path(file_path: str) -> Path | None:
+    """M2 — strictly resolve under DOWNLOADS_PATH. Returns None on traversal."""
+    candidate = (DOWNLOADS_PATH_RESOLVED / Path(file_path).name).resolve()
+    if not candidate.is_relative_to(DOWNLOADS_PATH_RESOLVED):
+        logger.warning(
+            "rejected file_path=%r: escapes DOWNLOADS_PATH=%s",
+            file_path, DOWNLOADS_PATH_RESOLVED,
+        )
+        return None
+    return candidate
 
 
 async def _direct_download(update: Update, status_msg, url: str, fmt: str, format_id: str | None):
@@ -254,7 +335,7 @@ async def _direct_download(update: Update, status_msg, url: str, fmt: str, forma
 
         st = status.get("status")
         if st == "done":
-            file_path = status.get("file_path") or status.get("filename")
+            file_path = status.get("file") or status.get("file_path") or status.get("filename")
             video_meta = {
                 "width": status.get("width"),
                 "height": status.get("height"),
@@ -294,10 +375,9 @@ async def _direct_download(update: Update, status_msg, url: str, fmt: str, forma
         await event_client.send_download_error(job_id=job_id, error_message="Download timed out")
         return
 
-    local_path = Path(DOWNLOADS_PATH) / Path(file_path).name
-    if not local_path.exists():
-        local_path = Path(file_path)
-    if not local_path.exists():
+    # M2 — strictly resolve under DOWNLOADS_PATH, never fall back to absolute path
+    local_path = _resolve_local_path(file_path)
+    if local_path is None or not local_path.exists():
         await _edit_safe(status_msg, "File not found after download.")
         _stats["errors"] += 1
         await event_client.send_download_error(job_id=job_id, error_message="File not found after download")
@@ -345,7 +425,7 @@ async def _direct_download(update: Update, status_msg, url: str, fmt: str, forma
     try:
         local_path.unlink()
     except Exception:
-        pass
+        logger.debug("Could not delete %s", local_path)
 
 
 def _state_key(chat_id: int, message_id: int, url_hash: str) -> str:
@@ -395,6 +475,7 @@ def _build_quality_buttons(message_id: int, url_hash: str, formats: list[dict]) 
     return InlineKeyboardMarkup(rows)
 
 
+@_require_allowed
 async def url_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _evict_stale()
     text = update.message.text or ""
@@ -444,6 +525,7 @@ async def url_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "info": info,
             "message_id": status_msg.message_id,
             "created": time.time(),
+            "key": key,  # M13 — keep the lookup key on the entry
         }
 
         keyboard = _build_format_buttons(status_msg.message_id, uhash)
@@ -461,6 +543,7 @@ async def url_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 old_key = key
                 key = _state_key(update.effective_chat.id, sent.message_id, uhash)
                 _state[key] = _state.pop(old_key)
+                _state[key]["key"] = key
             except Exception:
                 logger.exception("Failed to send thumbnail, falling back to text")
                 sent = await update.message.reply_text(
@@ -470,6 +553,7 @@ async def url_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 old_key = key
                 key = _state_key(update.effective_chat.id, sent.message_id, uhash)
                 _state[key] = _state.pop(old_key)
+                _state[key]["key"] = key
         else:
             await status_msg.edit_text(caption, parse_mode="MarkdownV2", reply_markup=keyboard)
 
@@ -479,6 +563,7 @@ def _escape_md(text: str) -> str:
     return "".join(f"\\{c}" if c in special else c for c in str(text))
 
 
+@_require_allowed
 async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _evict_stale()
     query = update.callback_query
@@ -499,6 +584,11 @@ async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Session expired. Please send the link again.")
         return
 
+    # M1 — bind callbacks to the originator
+    if query.from_user.id != entry.get("user_id"):
+        await query.answer("not your download", show_alert=True)
+        return
+
     if fmt == "back":
         keyboard = _build_format_buttons(query.message.message_id, uhash)
         await query.edit_message_reply_markup(reply_markup=keyboard)
@@ -506,13 +596,13 @@ async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if fmt == "audio":
         asyncio.create_task(
-            download_and_send(query, entry, format="audio", format_id=None)
+            download_and_send(query, entry, format="audio", format_id=None, key=key)
         )
     elif fmt == "video":
         formats = entry["info"].get("formats", [])
         if not formats:
             asyncio.create_task(
-                download_and_send(query, entry, format="video", format_id=None)
+                download_and_send(query, entry, format="video", format_id=None, key=key)
             )
             return
 
@@ -520,6 +610,7 @@ async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=keyboard)
 
 
+@_require_allowed
 async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _evict_stale()
     query = update.callback_query
@@ -540,18 +631,49 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Session expired. Please send the link again.")
         return
 
+    # M1 — bind callbacks to the originator
+    if query.from_user.id != entry.get("user_id"):
+        await query.answer("not your download", show_alert=True)
+        return
+
     fid = None if format_id == "best" else format_id
     asyncio.create_task(
-        download_and_send(query, entry, format="video", format_id=fid)
+        download_and_send(query, entry, format="video", format_id=fid, key=key)
     )
 
 
-async def download_and_send(query, entry: dict, format: str, format_id: str | None):
+async def download_and_send(query, entry: dict, format: str, format_id: str | None, key: str):
     chat_id = query.message.chat_id
     message = query.message
     url = entry["url"]
     title = entry["info"].get("title", "download")
 
+    # M13 — always delete the entry on exit, even on error
+    try:
+        await _download_and_send_impl(
+            query=query,
+            entry=entry,
+            format=format,
+            format_id=format_id,
+            chat_id=chat_id,
+            message=message,
+            url=url,
+            title=title,
+        )
+    finally:
+        _state.pop(key, None)
+
+
+async def _download_and_send_impl(
+    query,
+    entry: dict,
+    format: str,
+    format_id: str | None,
+    chat_id: int,
+    message,
+    url: str,
+    title: str,
+):
     try:
         await message.edit_caption(caption="Starting download...") if message.photo else await message.edit_text("Starting download...")
     except Exception:
@@ -602,7 +724,7 @@ async def download_and_send(query, entry: dict, format: str, format_id: str | No
 
         st = status.get("status")
         if st == "done":
-            file_path = status.get("file_path") or status.get("filename")
+            file_path = status.get("file") or status.get("file_path") or status.get("filename")
             video_meta = {
                 "width": status.get("width"),
                 "height": status.get("height"),
@@ -645,10 +767,9 @@ async def download_and_send(query, entry: dict, format: str, format_id: str | No
         await event_client.send_download_error(job_id=job_id, error_message="Download timed out")
         return
 
-    local_path = Path(DOWNLOADS_PATH) / Path(file_path).name
-    if not local_path.exists():
-        local_path = Path(file_path)
-    if not local_path.exists():
+    # M2 — strictly resolve under DOWNLOADS_PATH, never fall back to absolute path
+    local_path = _resolve_local_path(file_path)
+    if local_path is None or not local_path.exists():
         await _edit_safe(message, "File not found after download.")
         _stats["errors"] += 1
         await event_client.send_download_error(job_id=job_id, error_message="File not found after download")

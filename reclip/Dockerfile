@@ -6,9 +6,17 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir flask yt-dlp
+# N2 — install from requirements.txt instead of inline pip install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+# L8 — run as a non-root user
+RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app \
+    && mkdir -p /downloads && chown -R app:app /app /downloads
+
+USER app
 
 EXPOSE 8899
 ENV HOST=0.0.0.0

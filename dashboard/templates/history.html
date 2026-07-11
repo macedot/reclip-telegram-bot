@@ -65,9 +65,16 @@
             <td>{{ row.username or row.user_id or '—' }}</td>
             <td>
               {% if row.url %}
-              <a href="{{ row.url }}" target="_blank" rel="noopener" class="url-cell" title="{{ row.url }}">
-                {{ row.url[:50] }}{% if row.url|length > 50 %}…{% endif %}
-              </a>
+                {% set safe = row.url | safe_url %}
+                {% if safe %}
+                  <a href="{{ safe }}" target="_blank" rel="noopener noreferrer" class="url-cell" title="{{ row.url }}">
+                    {{ row.url[:50] }}{% if row.url|length > 50 %}…{% endif %}
+                  </a>
+                {% else %}
+                  <span class="url-cell" title="{{ row.url }}">
+                    {{ row.url[:50] }}{% if row.url|length > 50 %}…{% endif %}
+                  </span>
+                {% endif %}
               {% else %}—{% endif %}
             </td>
             <td>

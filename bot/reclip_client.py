@@ -5,6 +5,12 @@ import httpx
 logger = logging.getLogger(__name__)
 
 RECLIP_URL = os.environ.get("RECLIP_URL", "http://reclip:8899")
+_RECLIP_API_TOKEN = os.environ.get("RECLIP_API_TOKEN", "")
+if not _RECLIP_API_TOKEN:
+    raise RuntimeError(
+        "RECLIP_API_TOKEN environment variable is required. "
+        "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+    )
 
 
 class ReclipError(Exception):
@@ -24,7 +30,10 @@ class ReclipServiceDown(ReclipError):
 
 
 def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=RECLIP_URL)
+    return httpx.AsyncClient(
+        base_url=RECLIP_URL,
+        headers={"X-Reclip-Token": _RECLIP_API_TOKEN},
+    )
 
 
 async def get_info(url: str) -> dict:

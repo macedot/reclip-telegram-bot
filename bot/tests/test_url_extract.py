@@ -1,4 +1,13 @@
-import sys, os
+import os
+import sys
+import tempfile
+
+# Set env vars BEFORE importing handlers
+_tmpdir = tempfile.mkdtemp()
+os.environ.setdefault("DOWNLOADS_PATH", _tmpdir)
+os.environ.setdefault("ALLOWED_USER_IDS", "12345,67890")
+os.environ.setdefault("RECLIP_API_TOKEN", "test-reclip-token")
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from handlers import URL_REGEX

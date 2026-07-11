@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# DF-3 / DF-4 — least-privilege permissions.
+permissions:
+  contents: read
+
+jobs:
+  test-ci-config:
+    name: CI config tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml pytest
+      - run: pytest -q .github/tests/test_ci_config.py
+
+  test-bot:
+    name: Bot tests
+    runs-on: ubuntu-latest
+    env:
+      # H5 — allowlist two fake IDs for tests
+      ALLOWED_USER_IDS: "1,2"
+      BOT_TOKEN: test-token
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r bot/requirements.txt
+      - run: pip install pytest pytest-asyncio
+      - run: cd bot && pytest -q tests/
+
+  test-dashboard:
+    name: Dashboard tests
+    runs-on: ubuntu-latest
+    env:
+      DB_PATH: ${{ runner.temp }}/test.db
+      ADMIN_USER: testuser
+      ADMIN_PASSWORD_HASH: ${{ steps.hash.outputs.hash }}
+      SECRET_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      DASHBOARD_INTERNAL_TOKEN: test-internal-token
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - id: hash
+        run: |
+          pip install bcrypt
+          echo "hash=$(python -c 'import bcrypt; print(bcrypt.hashpw(b\"testpw\", bcrypt.gensalt()).decode())')" >> "$GITHUB_OUTPUT"
+      - run: pip install -r dashboard/requirements.txt
+      - run: pip install pytest pytest-asyncio
+      - run: cd dashboard && DASHBOARD_INTERNAL_TOKEN=test-internal-token ADMIN_USER=testuser pytest -q tests/
+
+  test-reclip:
+    name: Reclip tests
+    runs-on: ubuntu-latest
+    env:
+      RECLIP_API_TOKEN: test-reclip-token
+      DOWNLOADS_PATH: ${{ runner.temp }}/reclip-downloads
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r reclip/requirements.txt
+      - run: pip install pytest
+      - run: mkdir -p "$DOWNLOADS_PATH"
+      - run: cd reclip && RECLIP_API_TOKEN=test-reclip-token DOWNLOADS_PATH="$DOWNLOADS_PATH" pytest -q tests/

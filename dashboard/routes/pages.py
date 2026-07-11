@@ -1,11 +1,24 @@
 """Page routes for the reclip_bot admin dashboard."""
-from fastapi import APIRouter, Request, Depends
+import logging
+import os
+from pathlib import Path
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 import db
-from auth import verify_credentials, create_session_cookie, get_current_user, COOKIE_NAME
+from auth import (
+    COOKIE_NAME,
+    create_session_cookie,
+    get_current_user,
+    verify_credentials,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -13,16 +26,38 @@ _templates_dir = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_templates_dir))
 
 
-def _require_auth(request: Request) -> str:
-    user = get_current_user(request)
-    if not user:
+# M12 — only render http(s) URLs as clickable links; everything else is plain text.
+def _safe_url(value):
+    if not value or not isinstance(value, str):
         return None
-    return user
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return None
+    if parsed.scheme in ("http", "https") and parsed.netloc:
+        return value
+    return None
+
+
+# Register the filter on the underlying Jinja2 env so {{ row.url | safe_url }}
+# works inside templates.
+templates.env.filters["safe_url"] = _safe_url
+
+
+safe_url = _safe_url  # public re-export for tests
+
+
+# H6 — per-IP login rate limit. The Limiter instance is created here and
+# wired into app.state by main.create_app(). The threshold is configurable
+# via LOGIN_RATE_LIMIT (default "5/minute") so tests can raise it.
+_LOGIN_RATE_LIMIT = os.environ.get("LOGIN_RATE_LIMIT", "5/minute")
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
 # ---------------------------------------------------------------------------
 # Login / Logout
 # ---------------------------------------------------------------------------
+
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request) -> HTMLResponse:
@@ -30,18 +65,25 @@ async def login_page(request: Request) -> HTMLResponse:
 
 
 @router.post("/login")
+@limiter.limit(_LOGIN_RATE_LIMIT)
 async def login_submit(request: Request) -> HTMLResponse:
     form = await request.form()
-    username = form.get("username", "")
-    password = form.get("password", "")
+    username = (form.get("username") or "").strip()
+    password = form.get("password") or ""
 
     if verify_credentials(username, password):
         response = RedirectResponse(url="/", status_code=303)
         create_session_cookie(response, username)
         return response
 
+    # L6 — log failed attempts server-side
+    client = request.client
+    ip = client.host if client else "unknown"
+    logger.warning("login failed for username=%r from ip=%s", username, ip)
+
     return templates.TemplateResponse(
-        request, "login.html",
+        request,
+        "login.html",
         {"error": "Invalid credentials"},
         status_code=401,
     )
@@ -57,6 +99,7 @@ async def logout() -> RedirectResponse:
 # ---------------------------------------------------------------------------
 # Protected pages
 # ---------------------------------------------------------------------------
+
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard_page(request: Request) -> HTMLResponse:
@@ -89,7 +132,8 @@ async def history_page(
         date_to=date_to,
     )
     return templates.TemplateResponse(
-        request, "history.html",
+        request,
+        "history.html",
         {
             "user": user,
             "data": data,
@@ -114,7 +158,8 @@ async def errors_page(
 
     errors = await db.get_error_downloads(date_from=date_from, date_to=date_to)
     return templates.TemplateResponse(
-        request, "errors.html",
+        request,
+        "errors.html",
         {"user": user, "errors": errors},
     )
 
@@ -150,7 +195,8 @@ async def admin_page(request: Request) -> HTMLResponse:
     disk_pct = round(downloads_bytes / max_disk_bytes * 100, 1) if max_disk_bytes else 0
 
     return templates.TemplateResponse(
-        request, "admin.html",
+        request,
+        "admin.html",
         {
             "user": user,
             "files": files,

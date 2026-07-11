@@ -1,6 +1,6 @@
 services:
   reclip:
-    image: ghcr.io/${GHCR_OWNER:-gth-ai}/reclip-telegram-bot/reclip:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/reclip:${IMAGE_TAG:-latest}
     build: ./reclip
     environment:
       - HOST=0.0.0.0
@@ -8,6 +8,8 @@ services:
       - MAX_CONCURRENT_DOWNLOADS=${MAX_CONCURRENT_DOWNLOADS:-3}
       - DOWNLOAD_TIMEOUT=${DOWNLOAD_TIMEOUT:-900}
       - DOWNLOADS_PATH=/downloads
+      # C2 — shared token required for /api/*
+      - RECLIP_API_TOKEN=${RECLIP_API_TOKEN:?RECLIP_API_TOKEN must be set}
     volumes:
       - downloads:/downloads
     networks:
@@ -15,17 +17,23 @@ services:
     restart: unless-stopped
 
   bot:
-    image: ghcr.io/${GHCR_OWNER:-gth-ai}/reclip-telegram-bot/bot:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/bot:${IMAGE_TAG:-latest}
     build: ./bot
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - RECLIP_URL=http://reclip:8899
+      # C2 — bot must send this when calling reclip /api/*
+      - RECLIP_API_TOKEN=${RECLIP_API_TOKEN:?RECLIP_API_TOKEN must be set}
       - TELEGRAM_BOT_API_URL=http://telegram-bot-api:8081
       - DOWNLOADS_PATH=/downloads
       - CLEANUP_MAX_AGE_HOURS=${CLEANUP_MAX_AGE_HOURS:-1}
       - CLEANUP_MAX_DISK_MB=${CLEANUP_MAX_DISK_MB:-5000}
       - CLEANUP_INTERVAL_SECONDS=${CLEANUP_INTERVAL_SECONDS:-300}
       - DASHBOARD_URL=http://dashboard:8080
+      # C4 — bot must send this when POSTing to /api/events
+      - DASHBOARD_INTERNAL_TOKEN=${DASHBOARD_INTERNAL_TOKEN:?DASHBOARD_INTERNAL_TOKEN must be set}
+      # H5 — Telegram user allowlist (fail-closed when empty)
+      - ALLOWED_USER_IDS=${ALLOWED_USER_IDS:-}
     volumes:
       - downloads:/downloads
     depends_on:
@@ -36,7 +44,8 @@ services:
     restart: unless-stopped
 
   telegram-bot-api:
-    image: aiogram/telegram-bot-api:latest
+    # DF-6 — pinned to a major.minor (no :latest)
+    image: aiogram/telegram-bot-api:7.7
     environment:
       - TELEGRAM_API_ID=${TELEGRAM_API_ID}
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
@@ -48,15 +57,20 @@ services:
     restart: unless-stopped
 
   dashboard:
-    image: ghcr.io/${GHCR_OWNER:-gth-ai}/reclip-telegram-bot/dashboard:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/dashboard:${IMAGE_TAG:-latest}
     build: ./dashboard
     environment:
-      - ADMIN_USER=${DASHBOARD_USER:-admin}
-      - ADMIN_PASSWORD=${DASHBOARD_PASSWORD}
+      # N3 — admin username required; default 'admin' is rejected by code
+      - ADMIN_USER=${DASHBOARD_USER:?DASHBOARD_USER must be set}
+      # H7 — bcrypt hash required (not plaintext)
+      - ADMIN_PASSWORD_HASH=${DASHBOARD_PASSWORD_HASH:?DASHBOARD_PASSWORD_HASH must be set}
       - DB_PATH=/data/reclip_bot.db
       - DOWNLOADS_PATH=/downloads
       - RECLIP_URL=http://reclip:8899
-      - SECRET_KEY=${DASHBOARD_SECRET_KEY:-change-me-in-production}
+      # C3 — fail-closed on SECRET_KEY
+      - SECRET_KEY=${DASHBOARD_SECRET_KEY:?DASHBOARD_SECRET_KEY must be set}
+      # C4 — shared token for /api/events
+      - DASHBOARD_INTERNAL_TOKEN=${DASHBOARD_INTERNAL_TOKEN:?DASHBOARD_INTERNAL_TOKEN must be set}
     volumes:
       - dashboard-data:/data
       - downloads:/downloads:ro

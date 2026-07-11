@@ -1,0 +1,44 @@
+# N1 — keep secrets, build artifacts, and source-control metadata
+# out of Docker build contexts.
+
+.git
+.gitignore
+.github
+.zcode
+tasks
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.vscode
+.idea
+
+# Tests and pytest
+.pytest_cache
+tests/
+**/tests/
+
+# Runtime / volume data (never bake these into images)
+downloads/
+telegram-bot-api-data/
+dashboard-data/
+
+# Documentation that isn't needed in the image
+*.md
+!README.md
+images/
+docs/
+
+# Misc
+*.log
+*.tmp
