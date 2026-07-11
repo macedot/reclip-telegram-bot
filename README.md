@@ -122,9 +122,12 @@ All configuration is via environment variables in `.env`:
 | `GHCR_OWNER` | (required) | GitHub username/org that owns the GHCR packages |
 | `IMAGE_TAG` | latest | Image tag to pull (e.g. `latest` or `dev-<sha>`) |
 | `MAX_CONCURRENT_DOWNLOADS` | 3 | Max parallel downloads |
+| `DOWNLOAD_TIMEOUT` | 900 | Hard timeout per download (seconds) |
 | `CLEANUP_MAX_AGE_HOURS` | 1 | Delete files older than this |
 | `CLEANUP_MAX_DISK_MB` | 5000 | Max disk usage before cleanup |
 | `CLEANUP_INTERVAL_SECONDS` | 300 | Cleanup check interval |
+| `RECLIP_URL` | `http://reclip:8899` | URL the bot uses to reach the reclip API |
+| `DOWNLOADS_PATH` | `/downloads` | Shared volume path for completed downloads |
 | `DASHBOARD_USER` | (required) | Dashboard login username (must not be `admin`) |
 | `DASHBOARD_PASSWORD_HASH` | (required) | Bcrypt hash of the dashboard login password (see [Required secrets](#required-secrets)) |
 | `DASHBOARD_SECRET_KEY` | (required) | Cookie signing key (see [Required secrets](#required-secrets)) |
@@ -133,6 +136,8 @@ All configuration is via environment variables in `.env`:
 | `DASHBOARD_PORT` | 8080 | Dashboard port on host |
 | `DASHBOARD_SECURE_COOKIES` | true | Set `Secure` flag on dashboard cookies (set `false` only for plain HTTP in a trusted network) |
 | `ALLOWED_USER_IDS` | (required) | Comma-separated Telegram user IDs allowed to use the bot (fail-closed if empty) |
+
+> **Note:** `DASHBOARD_USER`, `DASHBOARD_PASSWORD_HASH`, and `DASHBOARD_SECRET_KEY` are passed to the dashboard container as `ADMIN_USER`, `ADMIN_PASSWORD_HASH`, and `SECRET_KEY` respectively. For local development without Docker, use the container-side names (`ADMIN_USER`, `ADMIN_PASSWORD_HASH`, `SECRET_KEY`).
 
 ## Admin Dashboard
 
