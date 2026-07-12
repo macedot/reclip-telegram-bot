@@ -4,8 +4,8 @@
 # to auto-resolve the most recent successful "Build and Push Dev
 # Containers" run (via dev/tag.sh), or set IMAGE_TAG manually:
 #
-#   IMAGE_TAG=dev-57ae8be docker compose -f docker-compose.dev.yml \
-#     --env-file .env up
+#   IMAGE_TAG=dev-57ae8be docker compose -f dev/docker-compose.yml \
+#     --env-file dev/.env up
 #
 # All three services use pull_policy: always, so each `up` re-pulls the
 # remote image. No `build:` directives here — this compose is purely for
