@@ -11,6 +11,7 @@ import pytest
 _tmpdir = tempfile.mkdtemp()
 os.environ["DOWNLOADS_PATH"] = _tmpdir
 os.environ["ALLOWED_USER_IDS"] = "12345,67890"
+os.environ["ALLOWED_GROUP_IDS"] = "-100111111,-100222222"
 os.environ["RECLIP_API_TOKEN"] = "test-reclip-token"
 os.environ.setdefault("BOT_TOKEN", "test-token")
 
@@ -35,6 +36,18 @@ def test_empty_allowed_user_ids_blocks_all(monkeypatch):
     assert handlers.ALLOWED_USER_IDS == frozenset()
     # Re-set for downstream tests
     monkeypatch.setenv("ALLOWED_USER_IDS", "12345,67890")
+    importlib.reload(handlers)
+
+
+def test_allowed_group_ids_parsed_from_env():
+    assert handlers.ALLOWED_GROUP_IDS == frozenset({-100111111, -100222222})
+
+
+def test_empty_allowed_group_ids_is_empty_frozenset(monkeypatch):
+    monkeypatch.setenv("ALLOWED_GROUP_IDS", "")
+    importlib.reload(handlers)
+    assert handlers.ALLOWED_GROUP_IDS == frozenset()
+    monkeypatch.setenv("ALLOWED_GROUP_IDS", "-100111111,-100222222")
     importlib.reload(handlers)
 
 
@@ -161,6 +174,60 @@ async def test_require_allowed_blocks_unauthorized_user():
     class _Update:
         effective_user = _User()
         effective_chat = None
+        callback_query = None
+        message = None
+
+    result = await inner(_Update(), None)
+    assert called["v"] is False
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_require_allowed_passes_for_allowed_group_chat():
+    """Any sender in an allowed group chat is permitted, regardless of user ID."""
+    called = {"v": False}
+
+    @handlers._require_allowed
+    async def inner(update, context):
+        called["v"] = True
+        return "ok"
+
+    class _User:
+        id = 99999  # not in ALLOWED_USER_IDS
+
+    class _Chat:
+        id = -100111111  # IS in ALLOWED_GROUP_IDS
+
+    class _Update:
+        effective_user = _User()
+        effective_chat = _Chat()
+        callback_query = None
+        message = None
+
+    result = await inner(_Update(), None)
+    assert called["v"] is True
+    assert result == "ok"
+
+
+@pytest.mark.asyncio
+async def test_require_allowed_blocks_user_in_unknown_group():
+    """Sender not in ALLOWED_USER_IDS AND chat not in ALLOWED_GROUP_IDS -> reject."""
+    called = {"v": False}
+
+    @handlers._require_allowed
+    async def inner(update, context):
+        called["v"] = True
+        return "ok"
+
+    class _User:
+        id = 99999
+
+    class _Chat:
+        id = -100999999  # not in ALLOWED_GROUP_IDS either
+
+    class _Update:
+        effective_user = _User()
+        effective_chat = _Chat()
         callback_query = None
         message = None
 

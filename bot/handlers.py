@@ -31,16 +31,29 @@ CAPTION_MAX = 1000  # Telegram caption limit is 1024, leave headroom
 
 # H5 — fail-closed: an empty/unset ALLOWED_USER_IDS env var blocks ALL users.
 # The bot will refuse to start serving until the operator sets at least one ID.
+# ALLOWED_GROUP_IDS provides an additive trust boundary: any message whose
+# originating chat is in this set is allowed regardless of the sender's user ID.
+# Find group chat IDs by adding @userinfobot to the group or forwarding a
+# message from it to the bot in a private chat. Group IDs are typically
+# negative (e.g. -1001234567890 for supergroups).
 _ALLOWED_USER_IDS_RAW = os.environ.get("ALLOWED_USER_IDS", "").strip()
 ALLOWED_USER_IDS: frozenset[int] = frozenset(
     int(uid.strip())
     for uid in _ALLOWED_USER_IDS_RAW.split(",")
     if uid.strip()
 )
-if not ALLOWED_USER_IDS:
+_ALLOWED_GROUP_IDS_RAW = os.environ.get("ALLOWED_GROUP_IDS", "").strip()
+ALLOWED_GROUP_IDS: frozenset[int] = frozenset(
+    int(gid.strip())
+    for gid in _ALLOWED_GROUP_IDS_RAW.split(",")
+    if gid.strip()
+)
+if not ALLOWED_USER_IDS and not ALLOWED_GROUP_IDS:
     logger.warning(
-        "ALLOWED_USER_IDS is empty/unset — bot will REJECT all incoming messages. "
-        "Set ALLOWED_USER_IDS=11111111,22222222 to enable trusted users."
+        "ALLOWED_USER_IDS and ALLOWED_GROUP_IDS are both empty/unset — "
+        "bot will REJECT all incoming messages. "
+        "Set ALLOWED_USER_IDS=11111111,22222222 to enable trusted users, "
+        "or ALLOWED_GROUP_IDS=-1001234567890 to trust a whole group."
     )
 
 
@@ -66,24 +79,33 @@ SUPPORTED_PLATFORMS = [
 
 
 # ---------------------------------------------------------------------------
-# H5 — auth decorator (fail-closed when ALLOWED_USER_IDS is empty)
+# H5 — auth decorator (fail-closed when both allowlists are empty)
 # ---------------------------------------------------------------------------
 
 
 def _require_allowed(func):
-    """Block any update whose effective_user.id is not in ALLOWED_USER_IDS.
+    """Block any update unless the sender is in ALLOWED_USER_IDS or the chat
+    is in ALLOWED_GROUP_IDS.
 
-    When ALLOWED_USER_IDS is empty (operator hasn't configured it), every user
-    is rejected — this is the documented fail-closed default.
+    When both lists are empty (operator hasn't configured either), every
+    user is rejected — this is the documented fail-closed default. Group
+    trust is an additive layer: any message originating from an allowed
+    group chat is permitted regardless of the sender's user ID.
     """
 
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
-        if user is None or user.id not in ALLOWED_USER_IDS:
+        chat = update.effective_chat
+        allowed = (
+            (user is not None and user.id in ALLOWED_USER_IDS)
+            or (chat is not None and chat.id in ALLOWED_GROUP_IDS)
+        )
+        if not allowed:
             logger.warning(
-                "rejected update from user_id=%s (not in ALLOWED_USER_IDS)",
+                "rejected update from user_id=%s chat_id=%s (not in ALLOWED_USER_IDS or ALLOWED_GROUP_IDS)",
                 getattr(user, "id", None),
+                getattr(chat, "id", None),
             )
             # Send a single-shot notice if the chat surface allows it.
             if update.callback_query is not None:
