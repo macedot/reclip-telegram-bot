@@ -76,6 +76,8 @@ services:
       - DASHBOARD_INTERNAL_TOKEN=${DASHBOARD_INTERNAL_TOKEN:?DASHBOARD_INTERNAL_TOKEN must be set}
       - MAX_ACTIVE_DOWNLOADS=${MAX_ACTIVE_DOWNLOADS:-256}
       - LOGIN_RATE_LIMIT=${LOGIN_RATE_LIMIT:-5/minute}
+      - CLEANUP_MAX_DISK_MB=${CLEANUP_MAX_DISK_MB:-5000}
+      - DASHBOARD_SECURE_COOKIES=${DASHBOARD_SECURE_COOKIES:-true}
     volumes:
       - dashboard-data:/data
       - downloads:/downloads:ro
