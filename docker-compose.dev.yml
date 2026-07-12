@@ -1,8 +1,8 @@
 # Test harness for the most recent dev-branch container images.
 #
-# Pinned to whatever dev-<sha> tag you pass in IMAGE_TAG. Use bin/dev-up.sh
+# Pinned to whatever dev-<sha> tag you pass in IMAGE_TAG. Use dev/up.sh
 # to auto-resolve the most recent successful "Build and Push Dev
-# Containers" run (via bin/dev-tag.sh), or set IMAGE_TAG manually:
+# Containers" run (via dev/tag.sh), or set IMAGE_TAG manually:
 #
 #   IMAGE_TAG=dev-57ae8be docker compose -f docker-compose.dev.yml \
 #     --env-file .env up

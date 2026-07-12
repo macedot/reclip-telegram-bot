@@ -2,14 +2,14 @@
 # Launch docker-compose.dev.yml against a dev image tag.
 #
 # By default the most recent successful "Build and Push Dev Containers"
-# workflow run's tag is resolved via bin/dev-tag.sh. To pin a specific tag,
+# workflow run's tag is resolved via dev/tag.sh. To pin a specific tag,
 # set IMAGE_TAG in the environment and this script will skip resolution.
 #
 # Usage:
-#   bin/dev-up.sh                       # resolve latest tag, then up
-#   bin/dev-up.sh --detach              # forward flags to docker compose up
-#   IMAGE_TAG=dev-abc1234 bin/dev-up.sh # pin a specific tag
-#   REPO=other/repo bin/dev-up.sh
+#   dev/up.sh                       # resolve latest tag, then up
+#   dev/up.sh --detach              # forward flags to docker compose up
+#   IMAGE_TAG=dev-abc1234 dev/up.sh # pin a specific tag
+#   REPO=other/repo dev/up.sh
 #
 # Env overrides:
 #   REPO       GitHub repo (default: macedot/reclip-telegram-bot)
@@ -35,13 +35,13 @@ command -v docker >/dev/null 2>&1 || { echo "docker not installed" >&2; exit 1; 
 
 if [ -z "${IMAGE_TAG:-}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [ ! -x "${SCRIPT_DIR}/dev-tag.sh" ]; then
-    echo "IMAGE_TAG is not set and ${SCRIPT_DIR}/dev-tag.sh is not executable." >&2
-    echo "Either set IMAGE_TAG=dev-xxxxxxx or chmod +x ${SCRIPT_DIR}/dev-tag.sh" >&2
+  if [ ! -x "${SCRIPT_DIR}/tag.sh" ]; then
+    echo "IMAGE_TAG is not set and ${SCRIPT_DIR}/tag.sh is not executable." >&2
+    echo "Either set IMAGE_TAG=dev-xxxxxxx or chmod +x ${SCRIPT_DIR}/tag.sh" >&2
     exit 1
   fi
   echo "Resolving latest successful dev CI tag..." >&2
-  IMAGE_TAG="$("${SCRIPT_DIR}/dev-tag.sh")"
+  IMAGE_TAG="$("${SCRIPT_DIR}/tag.sh")"
 fi
 
 # --- docker login to GHCR ---------------------------------------------------

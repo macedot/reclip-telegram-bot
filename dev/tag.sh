@@ -3,9 +3,9 @@
 # Prints the tag (e.g. dev-abc1234) to stdout; status info goes to stderr.
 #
 # Usage:
-#   bin/dev-tag.sh                 # default repo: macedot/reclip-telegram-bot
-#   REPO=other/repo bin/dev-tag.sh
-#   TAG=$(bin/dev-tag.sh)          # capture into a shell variable
+#   dev/tag.sh                 # default repo: macedot/reclip-telegram-bot
+#   REPO=other/repo dev/tag.sh
+#   TAG=$(dev/tag.sh)          # capture into a shell variable
 #
 # Env overrides:
 #   REPO  GitHub repo to query (default: macedot/reclip-telegram-bot)
