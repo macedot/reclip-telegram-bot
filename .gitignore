@@ -1,10 +1,76 @@
-.env
-.venv/
-downloads/
-__pycache__/
-*.pyc
-.pytest_cache/
-telegram-bot-api-data/
+# Whitelist: deny everything by default, then allow ONLY tracked file types
+# and explicitly-tracked hidden files.
+#
+# Mental model: if a path isn't matched by an allow rule below, it is
+# ignored. This includes secrets (.env), build artifacts (__pycache__,
+# *.pyc), IDE/OS files (.vscode, .DS_Store), virtualenvs (.venv),
+# downloaded media (downloads/), and any future file types we haven't
+# deliberately opted in to.
+
+# --- deny all files (hidden + non-hidden) -----------------------------------
+.*
+*
+
+# --- allow common tracked source/config file types -------------------------
+!*.py
+!*.yml
+!*.yaml
+!*.md
+!*.sh
+!*.html
+!*.css
+!*.js
+!*.svg
+!*.png
+!*.jpg
+!*.jpeg
+!*.txt
+!*.json
+!*.toml
+!Dockerfile
+!Dockerfile.*
+
+# --- allow all directories (so patterns above can match their contents) ----
+!*/
+
+# --- explicit denies for hidden directories the allow rules above would
+# otherwise re-introduce. !*/ brings back every directory; these patterns
+# (no leading !) re-deny the IDE/tooling directories that should never be
+# tracked.
+.vscode/
+.vscode/**
+.idea/
+.idea/**
+
+# --- explicit denies (override the allow rules above for known-bad paths) ---
+# These files are not tracked and should never be: personal scratch pads,
+# local config, generated reports, secrets, runtime data volumes, and the
+# build/install artifacts most projects produce.
 DESIGN.md
 CLAUDE.md
 docs/
+.env
+.env.*
+!.env.example
+.venv/
+downloads/
+telegram-bot-api-data/
+dashboard-data/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.pytest_cache
+.pytest_cache/**
+*.log
+*.tmp
+*.swp
+*.swo
+.DS_Store
+
+# --- explicitly allow tracked hidden files ---------------------------------
+!.gitignore
+!.dockerignore
+!.env.example

@@ -1,44 +1,75 @@
-# N1 — keep secrets, build artifacts, and source-control metadata
-# out of Docker build contexts.
+# Whitelist: deny everything by default, then allow ONLY files needed for
+# the Docker build context.
+#
+# ⚠️  Build context scope: this file lives at the repo root but each service's
+# `docker compose build` uses a subdirectory as its context (./reclip, ./bot,
+# ./dashboard). Docker reads .dockerignore from the context root, NOT from the
+# repo root — so this file is currently DEAD CODE for the production builds.
+# It serves as a defensive whitelist in case anyone later changes a build
+# context to the repo root.
 
-.git
-.gitignore
-.github
-.zcode
-tasks
-__pycache__
-**/__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
+# --- deny all files (hidden + non-hidden) -----------------------------------
+.*
+*
 
-# Local env / secrets
+# --- allow common tracked source/config file types -------------------------
+!*.py
+!*.yml
+!*.yaml
+!*.md
+!*.sh
+!*.html
+!*.css
+!*.js
+!*.svg
+!*.png
+!*.jpg
+!*.jpeg
+!*.txt
+!*.json
+!*.toml
+!Dockerfile
+!Dockerfile.*
+
+# --- allow all directories (so patterns above can match their contents) ----
+!*/
+
+# --- explicit denies for hidden directories the allow rules above would
+# otherwise re-introduce. !*/ brings back every directory; these patterns
+# (no leading !) re-deny the IDE/tooling directories that should never be
+# in a build context.
+.vscode/
+.vscode/**
+.idea/
+.idea/**
+
+# --- explicit denies (override the allow rules above for known-bad paths) ---
+# Secrets, build artifacts, runtime data, IDE/OS files — none of these
+# belong in a Docker image.
+DESIGN.md
+CLAUDE.md
+docs/
 .env
 .env.*
 !.env.example
-
-# Editor / OS
-.DS_Store
-.vscode
-.idea
-
-# Tests and pytest
-.pytest_cache
-tests/
-**/tests/
-
-# Runtime / volume data (never bake these into images)
+.venv/
 downloads/
 telegram-bot-api-data/
 dashboard-data/
-
-# Documentation that isn't needed in the image
-*.md
-!README.md
-images/
-docs/
-
-# Misc
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.pytest_cache/**
 *.log
 *.tmp
+.DS_Store
+tests/
+**/tests/
+
+# --- explicitly allow tracked hidden files ---------------------------------
+!.gitignore
+!.dockerignore
+!.env.example
