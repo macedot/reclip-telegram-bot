@@ -1,57 +1,53 @@
 #!/usr/bin/env bash
-# Pull the most recent successful "Build and Push Dev Containers" run's
-# tag and launch docker-compose.dev.yml against it.
+# Launch docker-compose.dev.yml against a dev image tag.
+#
+# By default the most recent successful "Build and Push Dev Containers"
+# workflow run's tag is resolved via bin/dev-tag.sh. To pin a specific tag,
+# set IMAGE_TAG in the environment and this script will skip resolution.
 #
 # Usage:
-#   ./bin/dev-up.sh                # default: macedot/reclip-telegram-bot, ./.env
-#   ./bin/dev-up.sh --detach       # forward flags to docker compose up
-#   REPO=other/repo ./bin/dev-up.sh
+#   bin/dev-up.sh                       # resolve latest tag, then up
+#   bin/dev-up.sh --detach              # forward flags to docker compose up
+#   IMAGE_TAG=dev-abc1234 bin/dev-up.sh # pin a specific tag
+#   REPO=other/repo bin/dev-up.sh
 #
 # Env overrides:
 #   REPO       GitHub repo (default: macedot/reclip-telegram-bot)
+#   IMAGE_TAG  Skip tag resolution and use this value directly
 #   ENV_FILE   Path to .env (default: ./.env)
 #
 # Requirements:
-#   - gh CLI authenticated (gh auth status)
 #   - docker with compose v2
-#   - python3 (used inline for JSON parsing of the runs API)
+#   - gh CLI authenticated — required for either tag resolution or ghcr.io login
 
 set -euo pipefail
 
 REPO="${REPO:-macedot/reclip-telegram-bot}"
 ENV_FILE="${ENV_FILE:-.env}"
 
-# --- preflight ---------------------------------------------------------------
+# --- preflight --------------------------------------------------------------
 
-command -v gh     >/dev/null 2>&1 || { echo "gh CLI not installed" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || { echo "docker not installed" >&2; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "python3 not installed" >&2; exit 1; }
-
-gh auth status >/dev/null 2>&1 || { echo "gh CLI not authenticated (run: gh auth login)" >&2; exit 1; }
 
 [ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE. Copy from .env.example and fill required vars." >&2; exit 1; }
 
-# --- resolve latest successful dev CI run -----------------------------------
+# --- resolve tag ------------------------------------------------------------
 
-echo "Resolving latest successful dev CI run for ${REPO}..." >&2
-
-SHA=$(gh api "repos/${REPO}/actions/runs?per_page=20" \
-  | python3 -c "
-import json, sys
-runs = json.load(sys.stdin)['workflow_runs']
-for r in runs:
-    if r['name'] == 'Build and Push Dev Containers' and r['conclusion'] == 'success':
-        print(r['head_sha'])
-        break
-else:
-    sys.exit('No successful dev CI run found yet.')
-")
-
-# GHCR tag is dev-<7-char SHA prefix>, matching containers-dev.yml.
-TAG="dev-${SHA:0:7}"
-echo "Using dev image tag: ${TAG}  (full SHA: ${SHA})" >&2
+if [ -z "${IMAGE_TAG:-}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ ! -x "${SCRIPT_DIR}/dev-tag.sh" ]; then
+    echo "IMAGE_TAG is not set and ${SCRIPT_DIR}/dev-tag.sh is not executable." >&2
+    echo "Either set IMAGE_TAG=dev-xxxxxxx or chmod +x ${SCRIPT_DIR}/dev-tag.sh" >&2
+    exit 1
+  fi
+  echo "Resolving latest successful dev CI tag..." >&2
+  IMAGE_TAG="$("${SCRIPT_DIR}/dev-tag.sh")"
+fi
 
 # --- docker login to GHCR ---------------------------------------------------
+
+command -v gh >/dev/null 2>&1 || { echo "gh CLI not installed (needed for ghcr.io login)" >&2; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "gh CLI not authenticated (run: gh auth login)" >&2; exit 1; }
 
 LOGIN_USER=$(gh api user --jq .login)
 gh auth token | docker login ghcr.io -u "$LOGIN_USER" --password-stdin >/dev/null \
@@ -61,5 +57,5 @@ gh auth token | docker login ghcr.io -u "$LOGIN_USER" --password-stdin >/dev/nul
 
 # All args are forwarded to docker compose up so the user can pass
 # --detach, --build, --force-recreate, etc.
-exec env IMAGE_TAG="$TAG" \
+exec env IMAGE_TAG="$IMAGE_TAG" \
   docker compose --env-file "$ENV_FILE" -f docker-compose.dev.yml up "$@"
