@@ -14,6 +14,7 @@
 services:
   reclip:
     image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/reclip:${IMAGE_TAG:?IMAGE_TAG must be set}
+    platform: linux/amd64
     pull_policy: always
     environment:
       - HOST=0.0.0.0
@@ -33,6 +34,7 @@ services:
 
   bot:
     image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/bot:${IMAGE_TAG:?IMAGE_TAG must be set}
+    platform: linux/amd64
     pull_policy: always
     environment:
       - BOT_TOKEN=${BOT_TOKEN:?BOT_TOKEN must be set}
@@ -70,6 +72,7 @@ services:
 
   dashboard:
     image: ghcr.io/${GHCR_OWNER:?GHCR_OWNER must be set}/reclip-telegram-bot/dashboard:${IMAGE_TAG:?IMAGE_TAG must be set}
+    platform: linux/amd64
     pull_policy: always
     environment:
       - ADMIN_USER=${DASHBOARD_USER:?DASHBOARD_USER must be set}
