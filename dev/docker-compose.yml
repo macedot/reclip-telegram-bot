@@ -25,9 +25,14 @@ services:
       - MAX_FILESIZE=${MAX_FILESIZE:-2G}
       - MIN_FREE_DISK_MB=${MIN_FREE_DISK_MB:-1024}
       - DOWNLOADS_PATH=/downloads
+      - RECLIP_DB_PATH=${RECLIP_DB_PATH:-/data/reclip_jobs.db}
+      - JOB_TTL_SECONDS=${JOB_TTL_SECONDS:-604800}
+      - SWEEP_INTERVAL_SECONDS=${SWEEP_INTERVAL_SECONDS:-3600}
+      - STALE_DOWNLOAD_SECONDS=${STALE_DOWNLOAD_SECONDS:-60}
       - RECLIP_API_TOKEN=${RECLIP_API_TOKEN:?RECLIP_API_TOKEN must be set}
     volumes:
-      - downloads:/downloads
+      - ${BASE_DIR:?BASE_DIR must be set}/downloads:/downloads
+      - reclip-data:/data
     networks:
       - internal
     restart: unless-stopped
@@ -101,6 +106,7 @@ volumes:
   downloads:
   telegram-bot-api-data:
   dashboard-data:
+  reclip-data:
 
 networks:
   internal:

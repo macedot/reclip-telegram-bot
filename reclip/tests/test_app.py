@@ -241,31 +241,36 @@ def test_friendly_error_allows_benign_info_line():
 
 
 # ---------------------------------------------------------------------------
-# H2 — LRU eviction
+# H2 — LRU eviction (now backed by SQLite in db.py)
 # ---------------------------------------------------------------------------
 
 
-def test_register_job_evicts_oldest(monkeypatch):
-    import collections
-    reclip_app.jobs.clear()
-    monkeypatch.setattr(reclip_app, "MAX_JOBS", 3)
+def test_register_job_evicts_oldest_when_over_cap(monkeypatch):
+    import db as reclip_db
+    monkeypatch.setattr(reclip_db, "MAX_JOBS", 3)
     for i in range(4):
-        reclip_app._register_job(f"job{i}", {"status": "done", "file": None})
-    assert "job0" not in reclip_app.jobs
-    assert "job3" in reclip_app.jobs
-    assert len(reclip_app.jobs) == 3
+        reclip_app._register_job(f"job{i}", "u", None, "video", None)
+    assert reclip_db.get_job("job0") is None
+    assert reclip_db.get_job("job3") is not None
+    c = reclip_db._connect()
+    n = c.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+    assert n == 3
 
 
 # ---------------------------------------------------------------------------
-# M8 — active download count
+# M8 — active download count (delegates to db.count_active)
 # ---------------------------------------------------------------------------
 
 
 def test_active_download_count():
-    reclip_app.jobs.clear()
-    reclip_app.jobs["a"] = {"status": "downloading"}
-    reclip_app.jobs["b"] = {"status": "done"}
-    reclip_app.jobs["c"] = {"status": "downloading"}
+    import db as reclip_db
+    reclip_db._connect().execute("DELETE FROM jobs")
+    reclip_db._connect().commit()
+    reclip_db.create_job("a", "u", None, "video", None)
+    reclip_db.create_job("b", "u", None, "video", None)
+    reclip_db.mark_done("b", file_path="x", filename="x",
+                        width=None, height=None, duration=None)
+    reclip_db.create_job("c", "u", None, "video", None)
     assert reclip_app._active_download_count() == 2
 
 

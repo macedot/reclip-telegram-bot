@@ -17,6 +17,8 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
+import db
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -27,7 +29,6 @@ DOWNLOAD_DIR_RESOLVED = Path(DOWNLOAD_DIR).resolve()
 
 MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 3))
 DOWNLOAD_TIMEOUT = int(os.environ.get("DOWNLOAD_TIMEOUT", 900))
-MAX_JOBS = int(os.environ.get("MAX_JOBS", "1000"))
 MAX_FILESIZE = os.environ.get("MAX_FILESIZE", "2G")
 MIN_FREE_DISK_MB = int(os.environ.get("MIN_FREE_DISK_MB", "1024"))
 download_semaphore = threading.Semaphore(MAX_CONCURRENT_DOWNLOADS)
@@ -40,8 +41,9 @@ if not _RECLIP_API_TOKEN:
         "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
     )
 
-# H2 — bounded LRU job registry
-jobs: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
+# Initialise SQLite-backed job store + background sweeper.
+db.init_db()
+db.start_sweeper()
 
 PROGRESS_TEMPLATE = (
     'download:{"downloaded_bytes":%(progress.downloaded_bytes)s,'
@@ -171,26 +173,17 @@ def _friendly_error(returncode: int, stderr_tail: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# H2 — LRU eviction
+# H2 — bounded job registry (now persisted in db.py)
 # ---------------------------------------------------------------------------
 
 
-def _register_job(job_id: str, entry: dict) -> None:
-    while len(jobs) >= MAX_JOBS:
-        old_id, old = jobs.popitem(last=False)
-        # best-effort cleanup of evicted job
-        f = old.get("file")
-        if f:
-            try:
-                os.remove(f)
-            except OSError:
-                pass
-    jobs[job_id] = entry
-    jobs.move_to_end(job_id)
+def _register_job(job_id: str, url: str, title: str | None,
+                  format_choice: str, format_id: str | None) -> None:
+    db.create_job(job_id, url, title, format_choice, format_id)
 
 
 def _active_download_count() -> int:
-    return sum(1 for j in jobs.values() if j.get("status") == "downloading")
+    return db.count_active()
 
 
 # ---------------------------------------------------------------------------
@@ -241,11 +234,8 @@ def _security_headers(resp):
 
 
 def run_download(job_id, url, format_choice, format_id):
-    job = jobs[job_id]
-
     if not download_semaphore.acquire(timeout=30):
-        job["status"] = "error"
-        job["error"] = "Too many concurrent downloads, please try again later"
+        db.mark_error(job_id, "Too many concurrent downloads, please try again later")
         return
 
     try:
@@ -255,7 +245,7 @@ def run_download(job_id, url, format_choice, format_id):
 
 
 def _do_download(job_id, url, format_choice, format_id):
-    job = jobs[job_id]
+    job = db.get_job(job_id) or {}
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
     cmd = [
@@ -310,13 +300,13 @@ def _do_download(job_id, url, format_choice, format_id):
                     percent = None
                     if total and downloaded and total > 0:
                         percent = round(downloaded / total * 100, 1)
-                    job["progress"] = {
+                    db.update_progress(job_id, {
                         "percent": percent,
                         "downloaded_bytes": downloaded,
                         "total_bytes": total,
                         "speed": progress_data.get("speed"),
                         "eta": progress_data.get("eta"),
-                    }
+                    })
                 except (json.JSONDecodeError, ValueError):
                     pass
         except Exception:
@@ -339,15 +329,14 @@ def _do_download(job_id, url, format_choice, format_id):
             pass
 
     if timed_out.is_set():
-        job["status"] = "error"
-        job["error"] = f"Download timed out ({DOWNLOAD_TIMEOUT // 60} min limit)"
+        db.mark_error(job_id, f"Download timed out ({DOWNLOAD_TIMEOUT // 60} min limit)")
         return
 
     # H1 — sanitized stderr surface
     try:
         if returncode != 0:
-            job["status"] = "error"
-            job["error"] = _friendly_error(returncode, stderr_lines[-1] if stderr_lines else "")
+            friendly = _friendly_error(returncode, stderr_lines[-1] if stderr_lines else "")
+            db.mark_error(job_id, friendly)
             # N6 — log the full stderr to the container so failures are
             # debuggable via `docker logs reclip-reclip-1` even after the
             # in-memory jobs dict is wiped (e.g. by a restart). Without
@@ -362,8 +351,7 @@ def _do_download(job_id, url, format_choice, format_id):
 
         files = _glob_job_files(job_id)
         if not files:
-            job["status"] = "error"
-            job["error"] = "Download completed but no file was found"
+            db.mark_error(job_id, "Download completed but no file was found")
             return
 
         if format_choice == "audio":
@@ -432,6 +420,8 @@ def _do_download(job_id, url, format_choice, format_id):
                         except OSError:
                             pass
 
+        width = height = None
+        duration = None
         if chosen.endswith(".mp4"):
             try:
                 probe = subprocess.run(
@@ -443,34 +433,31 @@ def _do_download(job_id, url, format_choice, format_id):
                 info = json.loads(probe.stdout)
                 stream = (info.get("streams") or [{}])[0]
                 fmt = info.get("format") or {}
-                job["width"] = stream.get("width")
-                job["height"] = stream.get("height")
+                width = stream.get("width")
+                height = stream.get("height")
                 dur = fmt.get("duration")
-                job["duration"] = float(dur) if dur else None
+                duration = float(dur) if dur else None
             except Exception:
                 pass
 
-        job["status"] = "done"
-        job["file"] = chosen
         ext = os.path.splitext(chosen)[1]
-        title = job.get("title", "").strip()
+        title = (job.get("title") or "").strip()
         if title:
             safe_title = _sanitize_title(title)
-            job["filename"] = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
+            filename = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
         else:
-            job["filename"] = os.path.basename(chosen)
-    except (OSError, ValueError, KeyError, IndexError) as e:
+            filename = os.path.basename(chosen)
+        db.mark_done(job_id, file_path=chosen, filename=filename,
+                     width=width, height=height, duration=duration)
+    except (OSError, ValueError, KeyError, IndexError):
         logger.exception("download processing error")
-        job["status"] = "error"
-        job["error"] = "internal error"
-    except subprocess.SubprocessError as e:
+        db.mark_error(job_id, "internal error")
+    except subprocess.SubprocessError:
         logger.exception("subprocess error during download")
-        job["status"] = "error"
-        job["error"] = "internal error"
+        db.mark_error(job_id, "internal error")
     except Exception:
         logger.exception("unexpected error during download")
-        job["status"] = "error"
-        job["error"] = "internal error"
+        db.mark_error(job_id, "internal error")
 
 
 def _glob_job_files(job_id: str) -> list[str]:
@@ -580,7 +567,7 @@ def start_download():
         logger.warning("disk_usage check failed; proceeding")
 
     job_id = uuid.uuid4().hex[:10]
-    _register_job(job_id, {"status": "downloading", "url": url, "title": title})
+    _register_job(job_id, url, title, format_choice, format_id)
 
     thread = threading.Thread(target=run_download, args=(job_id, url, format_choice, format_id))
     thread.daemon = True
@@ -594,12 +581,12 @@ def start_download():
 def check_status(job_id):
     if not JOB_ID_RE.match(job_id or ""):
         return jsonify({"error": "Job not found"}), 404
-    job = jobs.get(job_id)
+    job = db.get_job(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
     response = {
-        "status": job["status"],
+        "status": job.get("status"),
         "error": job.get("error"),
         "filename": job.get("filename"),
         "progress": job.get("progress"),
@@ -617,13 +604,13 @@ def check_status(job_id):
 def download_file(job_id):
     if not JOB_ID_RE.match(job_id or ""):
         return jsonify({"error": "File not ready"}), 404
-    job = jobs.get(job_id)
-    if not job or job["status"] != "done":
+    job = db.get_job(job_id)
+    if not job or job.get("status") != "done":
         return jsonify({"error": "File not ready"}), 404
     # M6 — defense-in-depth: ensure the resolved path stays inside DOWNLOAD_DIR
     try:
         resolved = Path(job["file"]).resolve()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, KeyError, TypeError):
         return jsonify({"error": "File not ready"}), 404
     if not resolved.is_relative_to(DOWNLOAD_DIR_RESOLVED):
         return jsonify({"error": "Forbidden"}), 403
