@@ -348,6 +348,16 @@ def _do_download(job_id, url, format_choice, format_id):
         if returncode != 0:
             job["status"] = "error"
             job["error"] = _friendly_error(returncode, stderr_lines[-1] if stderr_lines else "")
+            # N6 — log the full stderr to the container so failures are
+            # debuggable via `docker logs reclip-reclip-1` even after the
+            # in-memory jobs dict is wiped (e.g. by a restart). Without
+            # this the user sees only the friendly one-liner and we have
+            # no way to diagnose yt-dlp exit codes 1/2/etc.
+            logger.error(
+                "yt-dlp failed for job %s (url=%s, returncode=%d). last stderr lines: %s",
+                job_id, url, returncode,
+                [ln for ln in stderr_lines[-5:] if ln and not ln.startswith("download:")],
+            )
             return
 
         files = _glob_job_files(job_id)
