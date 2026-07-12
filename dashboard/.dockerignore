@@ -1,0 +1,44 @@
+# Whitelist: deny everything by default, then allow ONLY files the dashboard
+# service needs at build time.
+#
+# The Docker build context is ./dashboard (set in docker-compose.yml), so
+# other services (reclip/, bot/) and repo-root files are out of scope.
+
+# --- deny all files (hidden + non-hidden) -----------------------------------
+.*
+*
+
+# --- allow file types needed by the dashboard service ----------------------
+# Python source, requirements, Jinja templates, and the static CSS/JS that
+# the FastAPI app serves at /static/.
+!*.py
+!*.txt
+!*.html
+!*.css
+!*.js
+!Dockerfile
+
+# --- allow all directories (so patterns above can match their contents) ----
+!*/
+
+# --- explicit denies for hidden directories !*/ would otherwise re-introduce -
+.vscode/
+.vscode/**
+.idea/
+.idea/**
+
+# --- explicit denies for paths that should never end up in the image -------
+# Tests, build artifacts, secrets, IDE/OS files — none of these belong
+# in a production container.
+tests/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+*.log
+*.tmp
+.DS_Store
+*.md

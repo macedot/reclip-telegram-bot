@@ -1,0 +1,40 @@
+# Whitelist: deny everything by default, then allow ONLY files the bot
+# service needs at build time.
+#
+# The Docker build context is ./bot (set in docker-compose.yml), so
+# other services (reclip/, dashboard/) and repo-root files are out of scope.
+
+# --- deny all files (hidden + non-hidden) -----------------------------------
+.*
+*
+
+# --- allow file types needed by the bot service ----------------------------
+# Pure Python service — no templates, no static assets.
+!*.py
+!*.txt
+!Dockerfile
+
+# --- allow all directories (so patterns above can match their contents) ----
+!*/
+
+# --- explicit denies for hidden directories !*/ would otherwise re-introduce -
+.vscode/
+.vscode/**
+.idea/
+.idea/**
+
+# --- explicit denies for paths that should never end up in the image -------
+# Tests, build artifacts, secrets, IDE/OS files — none of these belong
+# in a production container.
+tests/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+*.log
+*.tmp
+.DS_Store
+*.md
