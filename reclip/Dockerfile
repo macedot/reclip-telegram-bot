@@ -14,7 +14,7 @@ COPY . .
 
 # L8 — run as a non-root user
 RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app \
-    && mkdir -p /downloads && chown -R app:app /app /downloads
+    && mkdir -p /downloads /data && chown -R app:app /app /downloads /data
 
 USER app
 

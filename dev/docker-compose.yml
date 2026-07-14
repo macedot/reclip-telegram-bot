@@ -31,7 +31,7 @@ services:
       - STALE_DOWNLOAD_SECONDS=${STALE_DOWNLOAD_SECONDS:-60}
       - RECLIP_API_TOKEN=${RECLIP_API_TOKEN:?RECLIP_API_TOKEN must be set}
     volumes:
-      - ${BASE_DIR:?BASE_DIR must be set}/downloads:/downloads
+      - downloads:/downloads
       - reclip-data:/data
     networks:
       - internal
